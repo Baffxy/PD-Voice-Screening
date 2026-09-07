@@ -5,17 +5,22 @@ Run with: uvicorn main:app --reload
 Then visit http://127.0.0.1:8000/docs for interactive API documentation.
 """
 
+import os
+import tempfile
+
 import joblib
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
+
+from extract_features import extract_features
 
 app = FastAPI(
     title="Parkinson's Voice Screening API",
     description="Screening aid based on acoustic voice features. NOT a diagnostic tool — "
                  "flags elevated risk worth discussing with a doctor.",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 # Load model artifacts once at startup, not per-request.
@@ -37,10 +42,30 @@ class VoiceFeatures(BaseModel):
 class PredictionResponse(BaseModel):
     prediction: str
     probability_parkinsons: float
+    extracted_features: dict | None = None
+    recording_caveat: str | None = None
     disclaimer: str = (
         "This is a screening aid, not a medical diagnosis. "
         "Please consult a qualified healthcare professional for any health concerns."
     )
+
+
+def run_prediction(feature_values: dict) -> PredictionResponse:
+    """Shared prediction logic used by both the manual-input and audio endpoints."""
+    try:
+        X = pd.DataFrame([[feature_values[f] for f in FEATURE_ORDER]], columns=FEATURE_ORDER)
+        X_scaled = scaler.transform(X)
+
+        prediction = model.predict(X_scaled)[0]
+        probability = model.predict_proba(X_scaled)[0][1]
+
+        return PredictionResponse(
+            prediction="Elevated risk indicators detected" if prediction == 1 else "No elevated risk indicators detected",
+            probability_parkinsons=round(float(probability), 4),
+            extracted_features=feature_values,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
 
 
 @app.get("/")
@@ -55,22 +80,41 @@ def health_check():
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict(features: VoiceFeatures):
+    feature_values = {
+        "MDVP:Fo(Hz)": features.mdvp_fo_hz,
+        "MDVP:Jitter(%)": features.mdvp_jitter_pct,
+        "MDVP:Shimmer": features.mdvp_shimmer,
+        "HNR": features.hnr,
+        "PPE": features.ppe,
+    }
+    result = run_prediction(feature_values)
+    result.extracted_features = None  # not relevant for manual entry — user already knows these
+    return result
+
+
+@app.post("/predict-audio", response_model=PredictionResponse)
+async def predict_audio(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".wav"):
+        raise HTTPException(status_code=400, detail="Please upload a .wav file.")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        contents = await file.read()
+        tmp.write(contents)
+        tmp_path = tmp.name
+
     try:
-        X = pd.DataFrame([[
-            features.mdvp_fo_hz,
-            features.mdvp_jitter_pct,
-            features.mdvp_shimmer,
-            features.hnr,
-            features.ppe,
-        ]], columns=FEATURE_ORDER)
-        X_scaled = scaler.transform(X)
+        feature_values = extract_features(tmp_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        os.unlink(tmp_path)
 
-        prediction = model.predict(X_scaled)[0]
-        probability = model.predict_proba(X_scaled)[0][1]  # probability of class 1 (Parkinson's)
-
-        return PredictionResponse(
-            prediction="Elevated risk indicators detected" if prediction == 1 else "No elevated risk indicators detected",
-            probability_parkinsons=round(float(probability), 4),
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
+    result = run_prediction(feature_values)
+    result.recording_caveat = (
+        "This prediction depends on clean audio input. A malfunctioning or very low-quality "
+        "microphone can distort jitter/shimmer/HNR measurements enough to produce a misleading "
+        "result — verify your recording equipment is working normally before relying on this "
+        "result, and treat it as a demonstration of the pipeline rather than a guaranteed-accurate "
+        "individual assessment."
+    )
+    return result

@@ -2,6 +2,11 @@
 
 A machine learning screening tool that flags acoustic voice patterns associated with Parkinson's disease — served as a containerized API with a simple web frontend. Built as a corrected, production-grade rebuild of an earlier internship project.
 
+**Live app:** https://pd-voice-screening-baffxyy.streamlit.app
+**Live API:** https://pd-voice-screening.onrender.com/docs
+
+> Note: the backend runs on a free-tier host and spins down after 15 minutes of inactivity — the first request after idle time may take 30–50 seconds to respond while it wakes up.
+
 ## What it does
 
 Parkinson's disease affects motor control, including the muscles used for speech, often before other symptoms become obvious. This tool takes acoustic voice measurements and returns a risk indicator based on a model trained on the UCI Parkinson's voice dataset.
@@ -30,19 +35,20 @@ Rather than patch that specific pipeline, I rebuilt the problem from scratch usi
 | Validation | Single train/test split | Stratified 5-fold cross-validation |
 | Feature selection | None (all 754 raw features used) | Compared 5 vs. all 22 features via cross-validated F1 |
 | Healthy-person recall | 63% (59/93 — missed 37% of healthy people) | 100% on held-out test set (10/10) |
-| Deployment | None (notebook only) | FastAPI + Docker + Streamlit frontend |
+| Deployment | None (notebook only) | FastAPI + Docker + Streamlit frontend, both live |
 
 ## Architecture
 
-```
-Voice acoustic features (5 inputs)
-    → StandardScaler
-    → RandomForestClassifier (class_weight='balanced')
-    → FastAPI endpoint (/predict)
-    → Streamlit frontend
+```mermaid
+flowchart TD
+    A["Voice acoustic features<br/>(5 inputs: Fo, Jitter%, Shimmer, HNR, PPE)"] --> B[StandardScaler]
+    B --> C["RandomForestClassifier<br/>(class_weight='balanced')"]
+    C --> D["FastAPI endpoint /predict<br/>— containerized, deployed on Render"]
+    D --> E["Streamlit frontend<br/>— deployed on Streamlit Community Cloud"]
+    E -->|HTTP request| D
 ```
 
-The API and frontend are decoupled — the frontend calls the API over HTTP exactly as any other client (mobile app, another service) would.
+The API and frontend are decoupled and deployed separately — the frontend calls the live API over HTTP exactly as any other client (mobile app, another service) would.
 
 ## Key engineering decisions
 
@@ -87,8 +93,21 @@ python train_model.py
 
 This downloads the dataset directly from UCI, runs the full comparison (5 features vs. all 22, cross-validated), and saves `parkinsons_voice_model.pkl`, `scaler.pkl`, and `model_metadata.json` documenting exactly what was used and why.
 
+## Raw audio input
+
+The `/predict-audio` endpoint accepts a `.wav` recording directly (ideally a few seconds of a sustained vowel, e.g. "ahhh") and extracts the 5 acoustic features automatically using `parselmouth` (a Python wrapper around Praat), instead of requiring manual numeric entry.
+
+**Note on PPE specifically:** unlike the other 4 features, Pitch Period Entropy has no built-in Praat function — it's a specific statistic from the original research paper (Little et al., 2007). The implementation here is a documented *approximation* (entropy of the normalized log pitch-period distribution), not a byte-for-byte reproduction of the paper's exact computation.
+
+## Known limitations
+
+- **Recording hardware quality matters, and can produce false positives:** an initial self-recorded test (own laptop) produced a high-confidence false positive on a presumably healthy voice. Investigating further, this was traced to a malfunctioning laptop microphone — not a general problem with non-clinical recordings. To confirm, I tested against 2 samples from an independent, peer-reviewed dataset — [Prior et al., 2023](https://doi.org/10.6084/m9.figshare.23849127), *Scientific Reports* — recorded via participants' own telephones (functioning hardware). Both were classified correctly (a PD-labeled sample at 98.5%, a healthy-labeled sample at 30%), consistent with the hypothesis that the earlier false positive was a hardware artifact rather than a fundamental limitation of the acoustic feature approach. This still means the tool is sensitive to input recording quality — a genuinely faulty or very low-quality microphone can distort jitter/shimmer/HNR enough to produce a misleading result — so recording equipment should be verified as functioning normally before relying on a result.
+- **Small training dataset:** 195 samples total. Cross-validation gives a more trustworthy estimate than a single split, but the dataset is still small relative to the acoustic feature space.
+- **PPE approximation:** see above.
+
 ## Possible extensions
 
-- **Raw audio input**: extract the 5 acoustic features directly from a recorded voice sample (via `parselmouth`/Praat) instead of manual numeric entry — the natural next step toward a real end-user tool
+- Basic recording-quality validation before extraction (e.g. flagging clipped audio, excessive noise, or unusually low signal) to catch hardware issues rather than silently returning a misleading prediction
+- Systematic validation across a larger, varied set of externally-recorded samples (different devices, environments) to properly characterize reliability rather than relying on a handful of spot checks
 - Persistent logging of predictions for monitoring/drift detection
-- Deploy the API publicly (currently runs locally / via Docker)
+- Orchestrated retraining pipeline (e.g. Prefect) for reproducible model updates
