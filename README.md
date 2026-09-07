@@ -2,6 +2,11 @@
 
 A machine learning screening tool that flags acoustic voice patterns associated with Parkinson's disease — served as a containerized API with a simple web frontend. Built as a corrected, production-grade rebuild of an earlier internship project.
 
+**Live app:** https://pd-voice-screening-baffxyy.streamlit.app
+**Live API:** https://pd-voice-screening.onrender.com/docs
+
+> Note: the backend runs on a free-tier host and spins down after 15 minutes of inactivity — the first request after idle time may take 30–50 seconds to respond while it wakes up.
+
 ## What it does
 
 Parkinson's disease affects motor control, including the muscles used for speech, often before other symptoms become obvious. This tool takes acoustic voice measurements and returns a risk indicator based on a model trained on the UCI Parkinson's voice dataset.
@@ -30,19 +35,20 @@ Rather than patch that specific pipeline, I rebuilt the problem from scratch usi
 | Validation | Single train/test split | Stratified 5-fold cross-validation |
 | Feature selection | None (all 754 raw features used) | Compared 5 vs. all 22 features via cross-validated F1 |
 | Healthy-person recall | 63% (59/93 — missed 37% of healthy people) | 100% on held-out test set (10/10) |
-| Deployment | None (notebook only) | FastAPI + Docker + Streamlit frontend |
+| Deployment | None (notebook only) | FastAPI + Docker + Streamlit frontend, both live |
 
 ## Architecture
 
-```
-Voice acoustic features (5 inputs)
-    → StandardScaler
-    → RandomForestClassifier (class_weight='balanced')
-    → FastAPI endpoint (/predict)
-    → Streamlit frontend
+```mermaid
+flowchart TD
+    A["Voice acoustic features<br/>(5 inputs: Fo, Jitter%, Shimmer, HNR, PPE)"] --> B[StandardScaler]
+    B --> C["RandomForestClassifier<br/>(class_weight='balanced')"]
+    C --> D["FastAPI endpoint /predict<br/>— containerized, deployed on Render"]
+    D --> E["Streamlit frontend<br/>— deployed on Streamlit Community Cloud"]
+    E -->|HTTP request| D
 ```
 
-The API and frontend are decoupled — the frontend calls the API over HTTP exactly as any other client (mobile app, another service) would.
+The API and frontend are decoupled and deployed separately — the frontend calls the live API over HTTP exactly as any other client (mobile app, another service) would.
 
 ## Key engineering decisions
 
