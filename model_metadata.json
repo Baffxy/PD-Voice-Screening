@@ -1,0 +1,12 @@
+{
+  "features_used": [
+    "MDVP:Fo(Hz)",
+    "MDVP:Jitter(%)",
+    "MDVP:Shimmer",
+    "HNR",
+    "PPE"
+  ],
+  "model": "RandomForestClassifier(n_estimators=200, class_weight='balanced')",
+  "dataset": "https://archive.ics.uci.edu/ml/machine-learning-databases/parkinsons/parkinsons.data",
+  "notes": "class_weight='balanced' used to address ~3:1 class imbalance (147 PD vs 48 healthy)."
+}
