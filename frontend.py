@@ -5,10 +5,18 @@ Talks to the FastAPI backend running separately (locally or in Docker) on port 8
 Run with: streamlit run frontend.py
 """
 
+import os
+
 import requests
 import streamlit as st
 
-API_URL = "http://127.0.0.1:8000/predict"
+# Uses a deployed API URL if provided (via Streamlit secrets or an env var),
+# falling back to localhost for local development.
+try:
+    API_BASE = st.secrets["API_BASE_URL"]
+except (KeyError, FileNotFoundError):
+    API_BASE = os.environ.get("API_BASE_URL", "http://127.0.0.1:8000")
+API_URL = f"{API_BASE}/predict"
 
 st.set_page_config(page_title="Parkinson's Voice Screening", page_icon="🎙️", layout="centered")
 
