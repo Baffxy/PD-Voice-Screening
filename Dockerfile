@@ -23,8 +23,9 @@ COPY main.py .
 COPY parkinsons_voice_model.pkl .
 COPY scaler.pkl .
 
-# The port uvicorn will listen on inside the container
+# The port uvicorn will listen on inside the container (Render/most hosts override this via $PORT)
 EXPOSE 8000
 
-# Run the API when the container starts
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the API when the container starts.
+# Uses shell form so $PORT (set by the hosting platform) is respected, falling back to 8000 locally.
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
