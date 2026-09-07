@@ -5,3 +5,5 @@ scikit-learn==1.9.0
 pandas==2.2.3
 numpy==2.0.2
 joblib==1.6.0
+praat-parselmouth==0.4.7
+python-multipart==0.0.17
