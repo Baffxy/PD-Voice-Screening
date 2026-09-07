@@ -1,0 +1,94 @@
+# 🎙️ Parkinson's Voice Screening
+
+A machine learning screening tool that flags acoustic voice patterns associated with Parkinson's disease — served as a containerized API with a simple web frontend. Built as a corrected, production-grade rebuild of an earlier internship project.
+
+## What it does
+
+Parkinson's disease affects motor control, including the muscles used for speech, often before other symptoms become obvious. This tool takes acoustic voice measurements and returns a risk indicator based on a model trained on the UCI Parkinson's voice dataset.
+
+**This is a screening aid, not a diagnostic tool.** It's designed to flag patterns worth discussing with a doctor — not to replace clinical diagnosis. This distinction is enforced in the API response itself, not just in documentation.
+
+## Why this project exists
+
+I originally built a Parkinson's detection model during a 2023 internship ([old version here](https://github.com/Baffxy/Detection-of-the-Parkinsons-Disease)), using the 754-feature `pd_speech_features` dataset and an XGBoost classifier. Revisiting it, I found real methodological problems:
+
+- Class imbalance (~3:1, 564 vs. 192) was never handled — the confusion matrix shows it: only 59/93 healthy individuals were correctly identified (63% recall), while 293/302 Parkinson's cases were (97% recall)
+- Accuracy was the only reported metric (89%), which hid that lopsided per-class performance
+- No cross-validation — a single train/test split with unverified reliability
+- 754 raw features used with no feature selection or dimensionality reduction
+- No reproducible artifacts — the model only existed inside a notebook session, never saved
+
+Rather than patch that specific pipeline, I rebuilt the problem from scratch using a different, smaller, and more interpretable dataset — the classic 195-sample UCI Parkinson's voice dataset (22 acoustic features: jitter, shimmer, HNR, PPE, etc.) — because its features are the kind that could realistically be extracted from a short recorded voice sample, making an eventual real-world tool actually feasible. On top of that, I applied the fixes the original was missing: explicit class imbalance handling, cross-validation, and justified feature selection.
+
+## What changed, concretely
+
+| | Original (2023, `pd_speech_features`, XGBoost) | This version (UCI voice dataset, RandomForest) |
+|---|---|---|
+| Dataset | 754 features, 756 samples | 22 features, 195 samples |
+| Class imbalance | Not handled | `class_weight='balanced'`, compared against baseline |
+| Evaluation | Accuracy only (89%) | Precision/recall/F1 per class, ROC-AUC, macro-recall |
+| Validation | Single train/test split | Stratified 5-fold cross-validation |
+| Feature selection | None (all 754 raw features used) | Compared 5 vs. all 22 features via cross-validated F1 |
+| Healthy-person recall | 63% (59/93 — missed 37% of healthy people) | 100% on held-out test set (10/10) |
+| Deployment | None (notebook only) | FastAPI + Docker + Streamlit frontend |
+
+## Architecture
+
+```
+Voice acoustic features (5 inputs)
+    → StandardScaler
+    → RandomForestClassifier (class_weight='balanced')
+    → FastAPI endpoint (/predict)
+    → Streamlit frontend
+```
+
+The API and frontend are decoupled — the frontend calls the API over HTTP exactly as any other client (mobile app, another service) would.
+
+## Key engineering decisions
+
+- **`class_weight='balanced'` over resampling** — chosen after comparing against the unweighted baseline; directly addresses the 3:1 class imbalance without synthetic data.
+- **Recall (macro), not just accuracy, as the deciding metric** — accuracy alone hid the original model's bias toward one class. Macro recall surfaces it immediately.
+- **5-feature set retained over all 22** — not by default, but because cross-validated F1 showed it performs comparably, and it's a smaller, more practical set to eventually extract from a short voice recording.
+- **Docker layer-per-package** — dependencies are installed in separate `RUN` layers rather than one `pip install -r requirements.txt` call, so a slow/failed download during build doesn't force re-downloading already-successful packages.
+
+## Stack
+
+Python · scikit-learn · FastAPI · Docker · Streamlit · joblib
+
+## Running it locally
+
+**Backend (API):**
+```bash
+git clone https://github.com/Baffxy/pd-voice-screening.git
+cd pd-voice-screening
+python -m venv venv
+source venv/Scripts/activate   # or venv/bin/activate on Mac/Linux
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
+API docs available at `http://127.0.0.1:8000/docs`
+
+**Or via Docker:**
+```bash
+docker build -t pd-voice-api .
+docker run -p 8000:8000 pd-voice-api
+```
+
+**Frontend** (in a separate terminal, with the API running):
+```bash
+streamlit run frontend.py
+```
+
+## Retraining the model
+
+```bash
+python train_model.py
+```
+
+This downloads the dataset directly from UCI, runs the full comparison (5 features vs. all 22, cross-validated), and saves `parkinsons_voice_model.pkl`, `scaler.pkl`, and `model_metadata.json` documenting exactly what was used and why.
+
+## Possible extensions
+
+- **Raw audio input**: extract the 5 acoustic features directly from a recorded voice sample (via `parselmouth`/Praat) instead of manual numeric entry — the natural next step toward a real end-user tool
+- Persistent logging of predictions for monitoring/drift detection
+- Deploy the API publicly (currently runs locally / via Docker)
