@@ -1,6 +1,6 @@
 # 🎙️ Parkinson's Voice Screening
 
-A machine learning screening tool that flags acoustic voice patterns associated with Parkinson's disease; served as a containerized API with a simple web frontend. Built as a corrected, production-grade rebuild of an earlier internship project.
+A machine learning screening tool that flags acoustic voice patterns associated with Parkinson's disease, served as a containerized API with a simple web frontend. Built as a corrected, production-grade rebuild of an earlier internship project.
 
 **Live app:** https://pd-voice-screening-baffxyy.streamlit.app
 **Live API:** https://pd-voice-screening.onrender.com/docs
@@ -23,7 +23,7 @@ I originally built a Parkinson's detection model during a 2023 internship ([old 
 - 754 raw features used with no feature selection or dimensionality reduction
 - No reproducible artifacts — the model only existed inside a notebook session, never saved
 
-Rather than patch that specific pipeline, I rebuilt the problem from scratch using a different, smaller, and more interpretable dataset; the classic 195-sample UCI Parkinson's voice dataset (22 acoustic features: jitter, shimmer, HNR, PPE, etc.), because its features are the kind that could realistically be extracted from a short recorded voice sample, making an eventual real-world tool actually feasible. On top of that, I applied the fixes the original was missing: explicit class imbalance handling, cross-validation, and justified feature selection.
+Rather than patch that specific pipeline, I rebuilt the problem from scratch using a different, smaller, and more interpretable dataset...the classic 195-sample UCI Parkinson's voice dataset (22 acoustic features: jitter, shimmer, HNR, PPE, etc.) — because its features are the kind that could realistically be extracted from a short recorded voice sample, making an eventual real-world tool actually feasible. On top of that, I applied the fixes the original was missing: explicit class imbalance handling, cross-validation, and justified feature selection.
 
 ## What changed, concretely
 
@@ -43,12 +43,14 @@ Rather than patch that specific pipeline, I rebuilt the problem from scratch usi
 flowchart TD
     A["Voice acoustic features<br/>(5 inputs: Fo, Jitter%, Shimmer, HNR, PPE)"] --> B[StandardScaler]
     B --> C["RandomForestClassifier<br/>(class_weight='balanced')"]
-    C --> D["FastAPI endpoint /predict<br/>— containerized, deployed on Render"]
+    C --> D["FastAPI endpoint /predict, /predict-audio<br/>— containerized, deployed on Render"]
     D --> E["Streamlit frontend<br/>— deployed on Streamlit Community Cloud"]
     E -->|HTTP request| D
+    D -->|logs every prediction| F["Neon Postgres<br/>— persists across restarts/redeploys"]
+    F -->|GET /stats| D
 ```
 
-The API and frontend are decoupled and deployed separately; the frontend calls the live API over HTTP exactly as any other client (mobile app, another service) would.
+The API and frontend are decoupled and deployed separately — the frontend calls the live API over HTTP exactly as any other client (mobile app, another service) would.
 
 ## Key engineering decisions
 
@@ -59,7 +61,7 @@ The API and frontend are decoupled and deployed separately; the frontend calls t
 
 ## Stack
 
-Python · scikit-learn · FastAPI · Docker · Streamlit · joblib
+Python · scikit-learn · FastAPI · Docker · Streamlit · joblib · Prefect · PostgreSQL (Neon) · parselmouth
 
 ## Running it locally
 
@@ -87,11 +89,27 @@ streamlit run frontend.py
 
 ## Retraining the model
 
+Two ways to retrain, same underlying logic:
+
+**Plain script:**
 ```bash
 python train_model.py
 ```
 
-This downloads the dataset directly from UCI, runs the full comparison (5 features vs. all 22, cross-validated), and saves `parkinsons_voice_model.pkl`, `scaler.pkl`, and `model_metadata.json` documenting exactly what was used and why.
+**Orchestrated pipeline (Prefect):**
+```bash
+python training_flow.py
+```
+
+Both download the dataset directly from UCI, run the full comparison (5 features vs. all 22, cross-validated), and save `parkinsons_voice_model.pkl`, `scaler.pkl`, and `model_metadata.json`. The Prefect version additionally breaks the pipeline into named, tracked tasks (`load_data`, `evaluate_feature_set`, `choose_feature_set`, `train_final_model`, `save_artifacts`), each logged individually with its own timing and success/failure state. `load_data` retries automatically (3 attempts, 10s apart) on failure — a direct, practical response to the dropped-connection dataset-download failures encountered repeatedly during this project's development. For the visual flow-run dashboard, run `prefect server start` in a separate terminal and visit `http://127.0.0.1:4200`.
+
+## Monitoring
+
+Every prediction made via `/predict` or `/predict-audio` is logged to a Postgres database (hosted on [Neon](https://neon.tech), free tier) — timestamp, endpoint, input features, and result. This is deliberately **not** stored on Render's own filesystem: Render's free tier is ephemeral, so anything written locally is wiped on every restart or redeploy. An externally-hosted database means the log persists independently of the API container's lifecycle.
+
+`GET /stats` exposes basic aggregates over everything logged so far: total predictions, breakdown by endpoint, average predicted probability, and elevated/non-elevated counts. This is the foundation for real drift detection (e.g. watching whether incoming feature distributions start to diverge from the training data) — not yet implemented, but the data needed to build it is now being collected.
+
+Logging failures never affect the user-facing prediction itself — if the database is briefly unreachable, the request still succeeds; only the log entry is silently skipped (with a warning printed server-side).
 
 ## Raw audio input
 
@@ -101,7 +119,7 @@ The `/predict-audio` endpoint accepts a `.wav` recording directly (ideally a few
 
 ## Known limitations
 
-- **Recording hardware quality matters, and can produce false positives:** an initial self-recorded test (own laptop) produced a high-confidence false positive on a presumably healthy voice. Investigating further, this was traced to a malfunctioning laptop microphone and not a general problem with non-clinical recordings. To confirm, I tested against 2 samples from an independent, peer-reviewed dataset  [Prior et al., 2023](https://doi.org/10.6084/m9.figshare.23849127), *Scientific Reports*; recorded via participants' own telephones (functioning hardware). Both were classified correctly (a PD-labeled sample at 98.5%, a healthy-labeled sample at 30%), consistent with the hypothesis that the earlier false positive was a hardware artifact rather than a fundamental limitation of the acoustic feature approach. This still means the tool is sensitive to input recording quality, a genuinely faulty or very low-quality microphone can distort jitter/shimmer/HNR enough to produce a misleading result....so recording equipment should be verified as functioning normally before relying on a result.
+- **Recording hardware quality matters, and can produce false positives:** an initial self-recorded test (own laptop) produced a high-confidence false positive on a presumably healthy voice. Investigating further, this was traced to a malfunctioning laptop microphone — not a general problem with non-clinical recordings. To confirm, I tested against 2 samples from an independent, peer-reviewed dataset — [Prior et al., 2023](https://doi.org/10.6084/m9.figshare.23849127), *Scientific Reports* — recorded via participants' own telephones (functioning hardware). Both were classified correctly (a PD-labeled sample at 98.5%, a healthy-labeled sample at 30%), consistent with the hypothesis that the earlier false positive was a hardware artifact rather than a fundamental limitation of the acoustic feature approach. This still means the tool is sensitive to input recording quality — a genuinely faulty or very low-quality microphone can distort jitter/shimmer/HNR enough to produce a misleading result — so recording equipment should be verified as functioning normally before relying on a result.
 - **Small training dataset:** 195 samples total. Cross-validation gives a more trustworthy estimate than a single split, but the dataset is still small relative to the acoustic feature space.
 - **PPE approximation:** see above.
 
@@ -109,5 +127,5 @@ The `/predict-audio` endpoint accepts a `.wav` recording directly (ideally a few
 
 - Basic recording-quality validation before extraction (e.g. flagging clipped audio, excessive noise, or unusually low signal) to catch hardware issues rather than silently returning a misleading prediction
 - Systematic validation across a larger, varied set of externally-recorded samples (different devices, environments) to properly characterize reliability rather than relying on a handful of spot checks
-- Persistent logging of predictions for monitoring/drift detection
-- Orchestrated retraining pipeline (e.g. Prefect) for reproducible model updates
+- Real drift detection using the data now collected via `/stats` (e.g. comparing incoming feature distributions against the training set's)
+- Scheduled/automatic retraining runs (Prefect supports this natively) rather than manual invocation
