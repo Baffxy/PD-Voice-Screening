@@ -15,17 +15,21 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 
 from extract_features import extract_features
+from db_logger import init_db, log_prediction, get_stats
 
 app = FastAPI(
     title="Parkinson's Voice Screening API",
     description="Screening aid based on acoustic voice features. NOT a diagnostic tool — "
                  "flags elevated risk worth discussing with a doctor.",
-    version="1.1.0",
+    version="1.2.0",
 )
 
 # Load model artifacts once at startup, not per-request.
 model = joblib.load("parkinsons_voice_model.pkl")
 scaler = joblib.load("scaler.pkl")
+
+# Create the predictions table if it doesn't exist yet. Safe to call every startup.
+init_db()
 
 FEATURE_ORDER = ["MDVP:Fo(Hz)", "MDVP:Jitter(%)", "MDVP:Shimmer", "HNR", "PPE"]
 
@@ -50,7 +54,7 @@ class PredictionResponse(BaseModel):
     )
 
 
-def run_prediction(feature_values: dict) -> PredictionResponse:
+def run_prediction(feature_values: dict, endpoint: str) -> PredictionResponse:
     """Shared prediction logic used by both the manual-input and audio endpoints."""
     try:
         X = pd.DataFrame([[feature_values[f] for f in FEATURE_ORDER]], columns=FEATURE_ORDER)
@@ -59,9 +63,14 @@ def run_prediction(feature_values: dict) -> PredictionResponse:
         prediction = model.predict(X_scaled)[0]
         probability = model.predict_proba(X_scaled)[0][1]
 
+        prediction_label = "Elevated risk indicators detected" if prediction == 1 else "No elevated risk indicators detected"
+        probability_rounded = round(float(probability), 4)
+
+        log_prediction(endpoint, feature_values, prediction_label, probability_rounded)
+
         return PredictionResponse(
-            prediction="Elevated risk indicators detected" if prediction == 1 else "No elevated risk indicators detected",
-            probability_parkinsons=round(float(probability), 4),
+            prediction=prediction_label,
+            probability_parkinsons=probability_rounded,
             extracted_features=feature_values,
         )
     except Exception as e:
@@ -78,6 +87,13 @@ def health_check():
     return {"status": "ok"}
 
 
+@app.get("/stats")
+def stats():
+    """Basic monitoring: aggregate counts and average predicted probability
+    over every prediction logged so far, across both endpoints."""
+    return get_stats()
+
+
 @app.post("/predict", response_model=PredictionResponse)
 def predict(features: VoiceFeatures):
     feature_values = {
@@ -87,7 +103,7 @@ def predict(features: VoiceFeatures):
         "HNR": features.hnr,
         "PPE": features.ppe,
     }
-    result = run_prediction(feature_values)
+    result = run_prediction(feature_values, endpoint="predict")
     result.extracted_features = None  # not relevant for manual entry — user already knows these
     return result
 
@@ -109,7 +125,7 @@ async def predict_audio(file: UploadFile = File(...)):
     finally:
         os.unlink(tmp_path)
 
-    result = run_prediction(feature_values)
+    result = run_prediction(feature_values, endpoint="predict-audio")
     result.recording_caveat = (
         "This prediction depends on clean audio input. A malfunctioning or very low-quality "
         "microphone can distort jitter/shimmer/HNR measurements enough to produce a misleading "

@@ -7,3 +7,5 @@ numpy==2.0.2
 joblib==1.6.0
 praat-parselmouth==0.4.7
 python-multipart==0.0.17
+psycopg2-binary==2.9.10
+python-dotenv==1.0.1

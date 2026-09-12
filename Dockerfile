@@ -19,10 +19,13 @@ RUN pip install --no-cache-dir --default-timeout=300 --retries=10 pandas==2.2.3
 RUN pip install --no-cache-dir --default-timeout=300 --retries=10 joblib==1.6.0
 RUN pip install --no-cache-dir --default-timeout=300 --retries=10 praat-parselmouth==0.4.7
 RUN pip install --no-cache-dir --default-timeout=300 --retries=10 python-multipart==0.0.17
+RUN pip install --no-cache-dir --default-timeout=300 --retries=10 psycopg2-binary==2.9.10
+RUN pip install --no-cache-dir --default-timeout=300 --retries=10 python-dotenv==1.0.1
 
 # Now copy the rest of the application code and model artifacts
 COPY main.py .
 COPY extract_features.py .
+COPY db_logger.py .
 COPY parkinsons_voice_model.pkl .
 COPY scaler.pkl .
 
