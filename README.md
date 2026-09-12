@@ -1,17 +1,17 @@
 # 🎙️ Parkinson's Voice Screening
 
-A machine learning screening tool that flags acoustic voice patterns associated with Parkinson's disease — served as a containerized API with a simple web frontend. Built as a corrected, production-grade rebuild of an earlier internship project.
+A machine learning screening tool that flags acoustic voice patterns associated with Parkinson's disease; served as a containerized API with a simple web frontend. Built as a corrected, production-grade rebuild of an earlier internship project.
 
 **Live app:** https://pd-voice-screening-baffxyy.streamlit.app
 **Live API:** https://pd-voice-screening.onrender.com/docs
 
-> Note: the backend runs on a free-tier host and spins down after 15 minutes of inactivity — the first request after idle time may take 30–50 seconds to respond while it wakes up.
+> Note: the backend runs on a free-tier host and spins down after 15 minutes of inactivity, the first request after idle time may take 30–50 seconds to respond while it wakes up.
 
 ## What it does
 
 Parkinson's disease affects motor control, including the muscles used for speech, often before other symptoms become obvious. This tool takes acoustic voice measurements and returns a risk indicator based on a model trained on the UCI Parkinson's voice dataset.
 
-**This is a screening aid, not a diagnostic tool.** It's designed to flag patterns worth discussing with a doctor — not to replace clinical diagnosis. This distinction is enforced in the API response itself, not just in documentation.
+**This is a screening aid, not a diagnostic tool.** It's designed to flag patterns worth discussing with a doctor, not to replace clinical diagnosis. This distinction is enforced in the API response itself, not just in documentation.
 
 ## Why this project exists
 
@@ -23,7 +23,7 @@ I originally built a Parkinson's detection model during a 2023 internship ([old 
 - 754 raw features used with no feature selection or dimensionality reduction
 - No reproducible artifacts — the model only existed inside a notebook session, never saved
 
-Rather than patch that specific pipeline, I rebuilt the problem from scratch using a different, smaller, and more interpretable dataset — the classic 195-sample UCI Parkinson's voice dataset (22 acoustic features: jitter, shimmer, HNR, PPE, etc.) — because its features are the kind that could realistically be extracted from a short recorded voice sample, making an eventual real-world tool actually feasible. On top of that, I applied the fixes the original was missing: explicit class imbalance handling, cross-validation, and justified feature selection.
+Rather than patch that specific pipeline, I rebuilt the problem from scratch using a different, smaller, and more interpretable dataset; the classic 195-sample UCI Parkinson's voice dataset (22 acoustic features: jitter, shimmer, HNR, PPE, etc.), because its features are the kind that could realistically be extracted from a short recorded voice sample, making an eventual real-world tool actually feasible. On top of that, I applied the fixes the original was missing: explicit class imbalance handling, cross-validation, and justified feature selection.
 
 ## What changed, concretely
 
@@ -48,7 +48,7 @@ flowchart TD
     E -->|HTTP request| D
 ```
 
-The API and frontend are decoupled and deployed separately — the frontend calls the live API over HTTP exactly as any other client (mobile app, another service) would.
+The API and frontend are decoupled and deployed separately; the frontend calls the live API over HTTP exactly as any other client (mobile app, another service) would.
 
 ## Key engineering decisions
 
@@ -101,7 +101,7 @@ The `/predict-audio` endpoint accepts a `.wav` recording directly (ideally a few
 
 ## Known limitations
 
-- **Recording hardware quality matters, and can produce false positives:** an initial self-recorded test (own laptop) produced a high-confidence false positive on a presumably healthy voice. Investigating further, this was traced to a malfunctioning laptop microphone — not a general problem with non-clinical recordings. To confirm, I tested against 2 samples from an independent, peer-reviewed dataset — [Prior et al., 2023](https://doi.org/10.6084/m9.figshare.23849127), *Scientific Reports* — recorded via participants' own telephones (functioning hardware). Both were classified correctly (a PD-labeled sample at 98.5%, a healthy-labeled sample at 30%), consistent with the hypothesis that the earlier false positive was a hardware artifact rather than a fundamental limitation of the acoustic feature approach. This still means the tool is sensitive to input recording quality — a genuinely faulty or very low-quality microphone can distort jitter/shimmer/HNR enough to produce a misleading result — so recording equipment should be verified as functioning normally before relying on a result.
+- **Recording hardware quality matters, and can produce false positives:** an initial self-recorded test (own laptop) produced a high-confidence false positive on a presumably healthy voice. Investigating further, this was traced to a malfunctioning laptop microphone and not a general problem with non-clinical recordings. To confirm, I tested against 2 samples from an independent, peer-reviewed dataset  [Prior et al., 2023](https://doi.org/10.6084/m9.figshare.23849127), *Scientific Reports*; recorded via participants' own telephones (functioning hardware). Both were classified correctly (a PD-labeled sample at 98.5%, a healthy-labeled sample at 30%), consistent with the hypothesis that the earlier false positive was a hardware artifact rather than a fundamental limitation of the acoustic feature approach. This still means the tool is sensitive to input recording quality, a genuinely faulty or very low-quality microphone can distort jitter/shimmer/HNR enough to produce a misleading result....so recording equipment should be verified as functioning normally before relying on a result.
 - **Small training dataset:** 195 samples total. Cross-validation gives a more trustworthy estimate than a single split, but the dataset is still small relative to the acoustic feature space.
 - **PPE approximation:** see above.
 
