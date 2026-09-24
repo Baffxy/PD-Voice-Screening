@@ -87,7 +87,7 @@ docker run -p 8000:8000 pd-voice-api
 streamlit run frontend.py
 ```
 
-## Retraining the model
+## MLOps : Orchestration
 
 Two ways to retrain, same underlying logic:
 
@@ -103,7 +103,7 @@ python training_flow.py
 
 Both download the dataset directly from UCI, run the full comparison (5 features vs. all 22, cross-validated), and save `parkinsons_voice_model.pkl`, `scaler.pkl`, and `model_metadata.json`. The Prefect version additionally breaks the pipeline into named, tracked tasks (`load_data`, `evaluate_feature_set`, `choose_feature_set`, `train_final_model`, `save_artifacts`), each logged individually with its own timing and success/failure state. `load_data` retries automatically (3 attempts, 10s apart) on failure — a direct, practical response to the dropped-connection dataset-download failures encountered repeatedly during this project's development. For the visual flow-run dashboard, run `prefect server start` in a separate terminal and visit `http://127.0.0.1:4200`.
 
-## Monitoring
+## MLOps: Monitoring
 
 Every prediction made via `/predict` or `/predict-audio` is logged to a Postgres database (hosted on [Neon](https://neon.tech), free tier) — timestamp, endpoint, input features, and result. This is deliberately **not** stored on Render's own filesystem: Render's free tier is ephemeral, so anything written locally is wiped on every restart or redeploy. An externally-hosted database means the log persists independently of the API container's lifecycle.
 
