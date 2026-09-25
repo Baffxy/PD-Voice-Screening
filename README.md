@@ -109,7 +109,7 @@ Every prediction made via `/predict` or `/predict-audio` is logged to a Postgres
 
 `GET /stats` exposes basic aggregates over everything logged so far: total predictions, breakdown by endpoint, average predicted probability, and elevated/non-elevated counts. This is the foundation for real drift detection (e.g. watching whether incoming feature distributions start to diverge from the training data) — not yet implemented, but the data needed to build it is now being collected.
 
-Logging failures never affect the user-facing prediction itself — if the database is briefly unreachable, the request still succeeds; only the log entry is silently skipped (with a warning printed server-side).
+Logging failures never affect the user-facing prediction itself... if the database is briefly unreachable, the request still succeeds; only the log entry is silently skipped (with a warning printed server-side).
 
 ## Raw audio input
 
